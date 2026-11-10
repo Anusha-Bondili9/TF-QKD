@@ -1,77 +1,45 @@
 """
-Creates the additional 32x32 binary watermark images used in the experiments.
+Creates the binary watermark images used in the experiments.
 
 Output folder: ./watermarks/   (values 0 / 255, 255 = white = bit 1)
-    watermark_binary_2.png          second watermark (cat-head silhouette, drawn by the authors)
-    watermark_binary_3_random.png   random-bit watermark   (seed 43)
-    watermark_binary_4_text.png     text watermark         ("Digital image authentication 2026")
-    watermark_binary_5_texture.png  texture watermark      (seed 44)
+    watermark_binary_cameraman.png  cameraman watermark, from watermarks/cameraman_source.png
+                                    (grayscale photograph, thresholded at 127)
+    watermark_binary_random.png     random-bit watermark   (800x800, 32x32 bits, seed 43)
+    watermark_binary_text.png       text watermark         (800x800, 32x32 bits, "Digital image authentication 2026")
 
 The main watermark (watermark_binary.png) is the eagle silhouette and is supplied separately.
-The pipeline notebook generates the random, text and texture watermarks itself with the same
-code and seeds, so these files are only needed for viewing or reuse. The second watermark file
-is read by the notebook (section 7.3b).
+The pipeline notebook reads watermark_binary.png and watermark_binary_cameraman.png, and generates
+the text and random-bit watermarks itself with the same code and seed, so those two files are only
+needed for viewing or reuse.
 
 Usage:  python create_watermarks.py
-Requires: numpy, scipy, pillow
+Requires: numpy, pillow
 """
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from scipy.ndimage import gaussian_filter
 
 GLOBAL_SEED = 42
 OUT = Path("watermarks")
 OUT.mkdir(exist_ok=True)
+SCALE = 25                      # each of the 32 x 32 bits becomes a 25 x 25 block -> 800 x 800 pixels
 
 
-def save(bits, name):
+def save_bits(bits, name):
     img = (np.asarray(bits, dtype=np.uint8).reshape(32, 32) * 255).astype(np.uint8)
-    Image.fromarray(img, mode="L").save(OUT / name)
-    print(f"saved {OUT / name}  | white pixels: {int((img == 255).sum())} of 1024")
+    big = np.kron(img, np.ones((SCALE, SCALE), dtype=np.uint8))
+    Image.fromarray(big, mode="L").save(OUT / name)
+    print(f"saved {OUT / name}  | {big.shape[1]}x{big.shape[0]} | white bits: {int((img == 255).sum())} of 1024")
 
 
-# ---- second watermark: cat-head silhouette ('#' = black, '.' = white) ----
-CAT_HEAD = [
-    "................................",
-    "................................",
-    "................................",
-    ".....##..................##.....",
-    ".....###................###.....",
-    ".....#####............#####.....",
-    ".....######.########.######.....",
-    ".....######################.....",
-    ".....######################.....",
-    ".....######################.....",
-    ".....######################.....",
-    ".....######################.....",
-    ".....######################.....",
-    "....#######.########.#######....",
-    "....######...######...######....",
-    "....#####....######....#####....",
-    "....#####....######....######...",
-    "...######....######....######...",
-    "...#######..########..#######...",
-    "....########################....",
-    "....###########..###########....",
-    "....########################....",
-    "....########################....",
-    ".....######################.....",
-    "......#######.#..#########......",
-    "......########.##.########......",
-    ".......##################.......",
-    ".........##############.........",
-    "..........############..........",
-    "..............####..............",
-    "................................",
-    "................................",
-]
-assert len(CAT_HEAD) == 32 and all(len(r) == 32 for r in CAT_HEAD)
-cat = np.array([[0 if ch == "#" else 1 for ch in row] for row in CAT_HEAD], dtype=np.uint8)
-save(cat, "watermark_binary_2.png")
+# ---- cameraman watermark: grayscale photograph thresholded at 127 ----
+photo = np.asarray(Image.open(OUT / "cameraman_source.png").convert("L"))
+cameraman = ((photo > 127) * 255).astype(np.uint8)
+Image.fromarray(cameraman, mode="L").save(OUT / "watermark_binary_cameraman.png")
+print(f"saved {OUT / 'watermark_binary_cameraman.png'}  | {cameraman.shape[1]}x{cameraman.shape[0]} | white pixels: {int((cameraman == 255).sum())}")
 
 # ---- random-bit watermark ----
-save(np.random.default_rng(GLOBAL_SEED + 1).integers(0, 2, 1024), "watermark_binary_3_random.png")
+save_bits(np.random.default_rng(GLOBAL_SEED + 1).integers(0, 2, 1024), "watermark_binary_random.png")
 
 
 # ---- text watermark (ASCII bits, zero padded to 1024 bits) ----
@@ -81,13 +49,4 @@ def text_to_bits(msg, n=1024):
     return np.concatenate([b, np.zeros(n - b.size, np.uint8)]).astype(np.uint8)
 
 
-save(text_to_bits("Digital image authentication 2026"), "watermark_binary_4_text.png")
-
-
-# ---- texture watermark (smooth noise, thresholded at the median) ----
-def make_texture(seed=GLOBAL_SEED + 2, sigma=1.5):
-    f = gaussian_filter(np.random.default_rng(seed).standard_normal((32, 32)), sigma=sigma, mode="wrap")
-    return (f > np.median(f)).astype(np.uint8).ravel()
-
-
-save(make_texture(), "watermark_binary_5_texture.png")
+save_bits(text_to_bits("Digital image authentication 2026"), "watermark_binary_text.png")
